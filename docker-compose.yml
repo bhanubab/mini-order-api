@@ -1,0 +1,89 @@
+services:
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mini_order_app
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - .:/var/www
+    networks:
+      - mini_order_network
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  nginx:
+    image: nginx:alpine
+    container_name: mini_order_nginx
+    restart: unless-stopped
+    ports:
+      - "8000:80"
+    volumes:
+      - .:/var/www
+      - ./docker/nginx/nginx.conf:/etc/nginx/conf.d/default.conf
+    networks:
+      - mini_order_network
+    depends_on:
+      - app
+
+  mysql:
+    image: mysql:8.0
+    container_name: mini_order_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: mini_order_api
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_USER: laravel
+      MYSQL_PASSWORD: laravelpassword
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - mini_order_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:alpine
+    container_name: mini_order_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - mini_order_network
+
+  queue:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mini_order_queue
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - .:/var/www
+    command: php artisan queue:work --sleep=3 --tries=3 --timeout=60
+    networks:
+      - mini_order_network
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+networks:
+  mini_order_network:
+    driver: bridge
+
+volumes:
+  mysql_data:
+    driver: local
